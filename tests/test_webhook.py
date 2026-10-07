@@ -33,13 +33,13 @@ def test_webhook_requires_secret(client):
 def test_webhook_accepts_valid_signal(client):
     r = client.post("/webhook", json={"action": "LONG", "price": 100, "secret": "s3cret"})
     assert r.status_code == 200
-    assert r.get_json()["signal"]["direction"] == "LONG"
+    assert r.get_json()["trade"]["direction"] == "LONG"
 
 
 def test_webhook_plain_text_with_query_secret(client):
     r = client.post("/webhook?secret=s3cret", data="MSB SHORT", content_type="text/plain")
     assert r.status_code == 200
-    assert r.get_json()["signal"]["direction"] == "SHORT"
+    assert r.get_json()["trade"]["direction"] == "SHORT"
 
 
 def test_webhook_bad_payload_is_400_not_500(client):

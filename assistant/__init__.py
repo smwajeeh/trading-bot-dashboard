@@ -1,10 +1,9 @@
 import hmac
-import json
 import logging
-import os
 
 from flask import Flask, jsonify, request
 
+from . import db, trades
 from .config import Config
 from .signals import SignalError, parse_signal
 
@@ -36,9 +35,7 @@ def create_app(overrides=None):
         app.config.update(overrides)
     if not app.config["WEBHOOK_SECRET"]:
         log.warning("WEBHOOK_SECRET is not set: webhook accepts unauthenticated requests")
-
-    os.makedirs(app.config["DATA_DIR"], exist_ok=True)
-    latest_file = os.path.join(app.config["DATA_DIR"], "latest_signal.json")
+    db.init_app(app)
 
     @app.post("/webhook")
     def webhook():
@@ -50,10 +47,30 @@ def create_app(overrides=None):
         except SignalError as e:
             return jsonify(status="error", error=str(e)), 400
 
-        with open(latest_file, "w") as f:
-            json.dump(signal.__dict__, f)
+        trade_id = trades.open_trade(signal)
+        trades.record_signal(signal, "accepted", trade_id=trade_id)
         log.info("Received %s signal: %s", signal.direction, signal.raw)
-        return jsonify(status="ok", signal=signal.__dict__)
+        return jsonify(status="ok", accepted=True, trade=trades.get_trade(trade_id))
+
+    @app.post("/api/trades/<int:trade_id>/result")
+    def trade_result(trade_id):
+        result = (request.get_json(silent=True) or {}).get("result")
+        try:
+            found = trades.set_result(trade_id, result)
+        except ValueError as e:
+            return jsonify(status="error", error=str(e)), 400
+        if not found:
+            return jsonify(status="error", error="trade not found"), 404
+        return jsonify(status="ok", trade=trades.get_trade(trade_id))
+
+    @app.get("/api/trades")
+    def list_trades():
+        day = request.args.get("day") or trades.trading_day()
+        return jsonify(day=day, trades=trades.trades_for_day(day))
+
+    @app.get("/api/signals")
+    def list_signals():
+        return jsonify(signals=trades.recent_signals())
 
     @app.get("/")
     def home():
