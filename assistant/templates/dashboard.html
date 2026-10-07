@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MS Break Assistant</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f3f3f1; --surface: #fcfcfb; --border: #e2e1dc;
+    --text: #0b0b0b; --text-2: #52514e; --muted: #7a7974;
+    --good: #0ca30c; --good-text: #006300; --good-bg: #e6f4e6;
+    --warning: #fab219; --warning-text: #7a5200; --warning-bg: #fdf3dc;
+    --critical: #d03b3b; --critical-text: #a32020; --critical-bg: #fbe8e8;
+    --long: #0ca30c; --short: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #111110; --surface: #1a1a19; --border: #2e2e2c;
+      --text: #ffffff; --text-2: #c3c2b7; --muted: #8f8e86;
+      --good-text: #7fd67f; --good-bg: #13301a;
+      --warning-text: #fcd27a; --warning-bg: #3a2c0c;
+      --critical-text: #f29b9b; --critical-bg: #3d1717;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #111110; --surface: #1a1a19; --border: #2e2e2c;
+    --text: #ffffff; --text-2: #c3c2b7; --muted: #8f8e86;
+    --good-text: #7fd67f; --good-bg: #13301a;
+    --warning-text: #fcd27a; --warning-bg: #3a2c0c;
+    --critical-text: #f29b9b; --critical-bg: #3d1717;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  main > * { min-width: 0; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 14px; margin: 0 0 12px; color: var(--text-2); font-weight: 600;
+       text-transform: uppercase; letter-spacing: .04em; }
+  .clock { color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .banner { display: flex; align-items: center; gap: 12px; border-radius: 12px; padding: 16px;
+            font-size: 18px; font-weight: 600; border: 1px solid transparent; }
+  .banner .icon { font-size: 26px; line-height: 1; }
+  .banner small { display: block; font-size: 14px; font-weight: 400; }
+  .banner.good { background: var(--good-bg); color: var(--good-text); border-color: var(--good); }
+  .banner.warning { background: var(--warning-bg); color: var(--warning-text); border-color: var(--warning); }
+  .banner.critical { background: var(--critical-bg); color: var(--critical-text); border-color: var(--critical); }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .stat .label { color: var(--text-2); font-size: 13px; }
+  .stat .value { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat .value span { font-size: 16px; color: var(--muted); font-weight: 500; }
+  .trade { display: grid; gap: 12px; }
+  .dir { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+  .dir::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+  .dir.LONG::before { background: var(--long); } .dir.SHORT::before { background: var(--short); }
+  .levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .levels .label { color: var(--text-2); font-size: 13px; }
+  .levels .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  button { font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 8px; cursor: pointer;
+           border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+  button.win { border-color: var(--good); color: var(--good-text); }
+  button.loss { border-color: var(--critical); color: var(--critical-text); }
+  button:hover { background: var(--bg); }
+  button:disabled { opacity: .5; cursor: wait; }
+  .entry-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--text-2); font-size: 14px; }
+  .entry-form input { font: inherit; width: 140px; padding: 9px 10px; border-radius: 8px;
+                      border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  .feed { color: var(--text-2); font-size: 14px; }
+  .feed.live::before { content: "● "; color: var(--good); }
+  .feed.stale::before { content: "● "; color: var(--muted); }
+  .how { color: var(--muted); font-size: 12px; margin-left: 4px; }
+  .practice { border: 1px dashed var(--warning); background: var(--surface); border-radius: 12px; padding: 16px; display: grid; gap: 12px; }
+  .practice h2 { margin: 0; color: var(--warning-text); }
+  .practice p { margin: 0; color: var(--text-2); font-size: 14px; max-width: 70ch; }
+  .practice-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .practice button { padding: 8px 12px; font-size: 14px; }
+  #practice-log { font-size: 14px; min-height: 1.4em; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--warning); outline-offset: 2px; }
+  .empty { color: var(--muted); }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td.reason { white-space: normal; min-width: 220px; color: var(--text-2); }
+  th { color: var(--text-2); font-weight: 600; font-size: 13px; }
+  .pill { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
+  .pill.win, .pill.accepted { background: var(--good-bg); color: var(--good-text); }
+  .pill.loss, .pill.rejected { background: var(--critical-bg); color: var(--critical-text); }
+  .pill.open { background: var(--warning-bg); color: var(--warning-text); }
+  .pill.void { background: var(--bg); color: var(--muted); }
+  .error { color: var(--critical-text); }
+  @media (max-width: 560px) {
+    .stat .value { font-size: 26px; } .levels .value { font-size: 18px; }
+    .stats, .levels { gap: 8px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>📊 MS Break Assistant</h1>
+    <div class="clock" id="clock">Loading…</div>
+  </header>
+
+  <section class="practice" id="practice" hidden aria-label="Practice controls">
+    <h2>Practice mode</h2>
+    <p>The trading window is ignored and practice trades are stored separately from real ones. These buttons send the same alerts TradingView would.</p>
+    <div class="practice-row">
+      <button type="button" id="p-long" data-act="signal" data-arg="LONG">Send LONG signal</button>
+      <button type="button" id="p-short" data-act="signal" data-arg="SHORT">Send SHORT signal</button>
+      <button type="button" id="p-tp" data-act="bar" data-arg="tp">Price hits TP</button>
+      <button type="button" id="p-sl" data-act="bar" data-arg="sl">Price hits SL</button>
+      <button type="button" id="p-drift" data-act="bar" data-arg="drift">Price moves, no hit</button>
+      <button type="button" id="p-reset" data-act="reset">Clear practice data</button>
+    </div>
+    <div id="practice-log" role="status" aria-live="polite"></div>
+  </section>
+
+  <div id="banner" class="banner warning" role="status" aria-live="polite">
+    <span class="icon">…</span><div>Connecting…</div>
+  </div>
+
+  <section class="stats">
+    <div class="card stat"><div class="label">Wins today</div><div class="value" id="wins">–</div></div>
+    <div class="card stat"><div class="label">Losses today</div><div class="value" id="losses">–</div></div>
+    <div class="card stat"><div class="label">Trades today</div><div class="value" id="count">–</div></div>
+  </section>
+
+  <section class="card">
+    <h2>Open trade</h2>
+    <div id="open-trade" class="empty">No open trade.</div>
+  </section>
+
+  <section class="card">
+    <h2>Today's trades</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>Time</th><th>Side</th><th>Entry</th><th>TP</th><th>SL</th><th>Exit</th><th>Result</th></tr></thead>
+      <tbody id="trades"></tbody>
+    </table></div>
+  </section>
+
+  <section class="card">
+    <h2>Recent signals</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Time</th><th>Side</th><th>Price</th><th>Status</th><th>Reason</th></tr></thead>
+      <tbody id="signals"></tbody>
+    </table></div>
+  </section>
+  <p class="error" id="error" hidden></p>
+</main>
+
+<script>
+const TZ = {{ market_tz | tojson }};
+const $ = (id) => document.getElementById(id);
+const fmtPrice = (v) => v == null ? "–" : Number(v).toLocaleString(undefined, {maximumFractionDigits: 2});
+const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], {timeZone: TZ, hour: "2-digit", minute: "2-digit", second: "2-digit"});
+const CLOSED_BY = {manual: "manual", "auto-tp": "auto · TP", "auto-sl": "auto · SL", alert: "exit alert"};
+let lastOpenId = null, firstLoad = true;
+
+function el(tag, attrs = {}, ...children) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) n[k] = v;
+  for (const c of children) n.append(c);
+  return n;
+}
+
+function setBanner(kind, icon, title, detail) {
+  const b = $("banner");
+  b.className = "banner " + kind;
+  b.replaceChildren(el("span", {className: "icon", ariaHidden: "true"}, icon),
+                    el("div", {}, title, detail ? el("small", {}, detail) : ""));
+}
+
+function beep() {
+  try {
+    const ctx = new AudioContext(), o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
+    g.gain.setValueAtTime(0.2, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+    o.start(); o.stop(ctx.currentTime + 0.6);
+  } catch (e) {}
+}
+
+function notify(trade) {
+  beep();
+  const msg = `${trade.direction} @ ${fmtPrice(trade.entry)}  TP ${fmtPrice(trade.take_profit)}  SL ${fmtPrice(trade.stop_loss)}`;
+  if ("Notification" in window && Notification.permission === "granted") new Notification("New MSB signal", {body: msg});
+}
+
+function notifyClosed(trade) {
+  beep();
+  const msg = `Trade #${trade.id} closed: ${trade.result.toUpperCase()} @ ${fmtPrice(trade.exit_price)}`;
+  if ("Notification" in window && Notification.permission === "granted") new Notification("Trade closed", {body: msg});
+}
+
+async function post(url, body) {
+  const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+}
+
+async function setEntry(id, input) {
+  if (input.value === "") return;
+  try { await post(`api/trades/${id}/entry`, {entry: Number(input.value)}); }
+  catch (e) { alert("Could not save entry: " + e.message); }
+  refresh();
+}
+
+async function setResult(id, result, btns) {
+  btns.forEach(b => b.disabled = true);
+  try { await post(`api/trades/${id}/result`, {result}); } catch (e) { alert("Could not save result: " + e.message); }
+  refresh();
+}
+
+function feedLine(lastBar, serverNow) {
+  // Compare against server time so a skewed device clock doesn't matter.
+  const age = lastBar ? (new Date(serverNow) - new Date(lastBar.at)) / 1000 : Infinity;
+  if (age < 180) return el("div", {className: "feed live"},
+    `Price feed live: last bar ${fmtTime(lastBar.at)} @ ${fmtPrice(lastBar.price ?? lastBar.high)}. TP/SL will close the trade automatically.`);
+  return el("div", {className: "feed stale"},
+    lastBar ? `Price feed quiet since ${fmtTime(lastBar.at)}. Mark the result manually if needed.`
+            : "No price feed connected. Mark the result when the trade closes.");
+}
+
+function renderOpenTrade(t, lastBar, serverNow) {
+  const box = $("open-trade");
+  const live = lastBar && (new Date(serverNow) - new Date(lastBar.at)) < 180000;
+  const key = t ? `${t.id}:${t.entry}:${lastBar && lastBar.at}:${live}` : "";
+  if (box.dataset.key === key && box.contains(document.activeElement)) return;
+  box.dataset.key = key;
+  if (!t) { box.className = "empty"; box.replaceChildren("No open trade."); return; }
+  box.className = "trade";
+  const level = (label, v) => el("div", {}, el("div", {className: "label"}, label), el("div", {className: "value"}, fmtPrice(v)));
+  const btns = [["win", "✓ Win (TP hit)"], ["loss", "✗ Loss (SL hit)"], ["void", "Void / not taken"]]
+    .map(([r, label]) => el("button", {className: r, type: "button"}, label));
+  btns.forEach((b, i) => b.onclick = () => setResult(t.id, ["win", "loss", "void"][i], btns));
+  box.replaceChildren(
+    el("div", {}, el("span", {className: "dir " + t.direction}, t.direction), `  #${t.id} · opened ${fmtTime(t.opened_at)}`, t.ticker ? ` · ${t.ticker}` : ""),
+    el("div", {className: "levels"}, level("Entry", t.entry), level("Take profit", t.take_profit), level("Stop loss", t.stop_loss)),
+    feedLine(lastBar, serverNow), el("div", {className: "actions"}, ...btns), entryForm(t));
+}
+
+function entryForm(t) {
+  const input = el("input", {type: "number", step: "0.25", inputMode: "decimal",
+                             placeholder: t.entry == null ? "Fill price" : String(t.entry), ariaLabel: "Entry price"});
+  const btn = el("button", {type: "button"}, t.entry == null ? "Set entry" : "Correct entry");
+  btn.onclick = () => setEntry(t.id, input);
+  input.onkeydown = (e) => { if (e.key === "Enter") setEntry(t.id, input); };
+  return el("div", {className: "entry-form"},
+            t.entry == null ? "No price came with the alert. Enter your fill to get TP/SL:" : "Filled at a different price?",
+            input, btn);
+}
+
+function render(s) {
+  const st = s.status;
+  $("practice").hidden = !s.practice_mode;
+  $("clock").textContent = new Date(st.local_time).toLocaleString([], {timeZone: TZ, weekday: "short", hour: "2-digit", minute: "2-digit", second: "2-digit"}) + " New York";
+  $("wins").replaceChildren(String(st.wins), el("span", {}, ` / ${st.max_wins}`));
+  $("losses").replaceChildren(String(st.losses), el("span", {}, ` / ${st.max_losses}`));
+  $("count").textContent = s.trades.filter(t => t.result !== "void").length;
+
+  if (st.stopped) setBanner("critical", "⛔", "STOP TRADING", st.stop_reason);
+  else if (st.open_trade) setBanner("warning", "⏳", `In a ${st.open_trade.direction} trade`,
+    st.open_trade.entry == null ? "Enter your fill price below to see TP / SL."
+      : `TP ${fmtPrice(st.open_trade.take_profit)} / SL ${fmtPrice(st.open_trade.stop_loss)}`);
+  else if (st.window.state !== "open" && !s.practice_mode) setBanner("warning", "🕒", "Outside trading window", st.window.reason);
+  else setBanner("good", "✅", "Ready: waiting for an MSB signal",
+                 `${s.practice_mode ? "Practice mode: trading window ignored" : "Window closes " + fmtTime(st.window.end)}. TP +${s.tp_points} / SL -${s.sl_points} points.`);
+
+  renderOpenTrade(st.open_trade, s.last_bar, st.local_time);
+  const openId = st.open_trade ? st.open_trade.id : null;
+  if (!firstLoad && openId && openId !== lastOpenId) notify(st.open_trade);
+  if (!firstLoad && lastOpenId && openId !== lastOpenId) {
+    const done = s.trades.find(t => t.id === lastOpenId);
+    if (done && done.closed_by && done.closed_by !== "manual") notifyClosed(done);
+  }
+  lastOpenId = openId; firstLoad = false;
+
+  $("trades").replaceChildren(...(s.trades.length ? s.trades.map(t => el("tr", {},
+    el("td", {}, String(t.id)), el("td", {}, fmtTime(t.opened_at)),
+    el("td", {}, el("span", {className: "dir " + t.direction}, t.direction)),
+    el("td", {}, fmtPrice(t.entry)), el("td", {}, fmtPrice(t.take_profit)), el("td", {}, fmtPrice(t.stop_loss)),
+    el("td", {}, fmtPrice(t.exit_price)),
+    el("td", {}, el("span", {className: "pill " + (t.result || "open")}, t.result || "open"),
+              t.closed_by ? el("span", {className: "how"}, CLOSED_BY[t.closed_by] || t.closed_by) : "")))
+    : [el("tr", {}, el("td", {colSpan: 8, className: "empty"}, "No trades yet today."))]));
+
+  $("signals").replaceChildren(...(s.signals.length ? s.signals.map(g => el("tr", {},
+    el("td", {}, new Date(g.received_at).toLocaleString([], {timeZone: TZ, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"})),
+    el("td", {}, el("span", {className: "dir " + g.direction}, g.direction)),
+    el("td", {}, fmtPrice(g.price)),
+    el("td", {}, el("span", {className: "pill " + g.status}, g.status)),
+    el("td", {className: "reason"}, g.reason || "")))
+    : [el("tr", {}, el("td", {colSpan: 5, className: "empty"}, "No signals received yet."))]));
+}
+
+async function refresh() {
+  try {
+    const r = await fetch("api/state", {cache: "no-store"});
+    if (!r.ok) throw new Error(r.status + " " + r.statusText);
+    render(await r.json());
+    $("error").hidden = true;
+  } catch (e) {
+    $("error").hidden = false;
+    $("error").textContent = "Connection problem: " + e.message + " (retrying…)";
+  }
+}
+
+document.querySelectorAll("#practice button").forEach(b => b.onclick = async () => {
+  const body = b.dataset.act === "signal" ? {direction: b.dataset.arg} : {kind: b.dataset.arg};
+  try {
+    const r = await fetch(`api/practice/${b.dataset.act}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const d = await r.json();
+    $("practice-log").textContent =
+      b.dataset.act === "reset" ? "Practice data cleared."
+      : d.error ? `Error: ${d.error}`
+      : d.accepted === true ? `Signal accepted. Trade #${d.trade.id} opened at ${fmtPrice(d.trade.entry)}.`
+      : d.accepted === false ? `Signal rejected: ${d.reason}`
+      : d.closed ? `Trade #${d.closed.id} closed: ${d.closed.result.toUpperCase()} at ${fmtPrice(d.closed.exit_price)}.`
+      : `Price bar sent: ${d.note}.`;
+  } catch (e) { $("practice-log").textContent = "Error: " + e.message; }
+  refresh();
+});
+
+document.addEventListener("click", () => {
+  if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
+}, {once: true});
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

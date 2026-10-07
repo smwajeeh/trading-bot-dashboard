@@ -1,1 +1,4 @@
-flask
+flask>=3.0,<4
+gunicorn>=22; sys_platform != "win32"
+waitress>=3
+tzdata
