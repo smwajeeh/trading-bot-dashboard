@@ -1,17 +1,19 @@
-# Use official Python image
-FROM python:3.10-slim
+FROM python:3.12-slim
 
-# Set working directory
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8080 \
+    DATA_DIR=/data
+
 WORKDIR /app
 
-# Copy files
-COPY . .
-
-# Install dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose port (Fly uses 8080 by default)
+COPY assistant ./assistant
+COPY server.py .
+
 EXPOSE 8080
 
-# Run your app
-CMD ["python", "server.py"]
+# One worker keeps SQLite writes simple; threads handle concurrent requests.
+CMD exec gunicorn --workers 1 --threads 4 --bind 0.0.0.0:${PORT} --access-logfile - server:app
