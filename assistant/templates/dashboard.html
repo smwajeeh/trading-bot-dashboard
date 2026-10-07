@@ -75,6 +75,13 @@
   .feed.live::before { content: "● "; color: var(--good); }
   .feed.stale::before { content: "● "; color: var(--muted); }
   .how { color: var(--muted); font-size: 12px; margin-left: 4px; }
+  .practice { border: 1px dashed var(--warning); background: var(--surface); border-radius: 12px; padding: 16px; display: grid; gap: 12px; }
+  .practice h2 { margin: 0; color: var(--warning-text); }
+  .practice p { margin: 0; color: var(--text-2); font-size: 14px; max-width: 70ch; }
+  .practice-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .practice button { padding: 8px 12px; font-size: 14px; }
+  #practice-log { font-size: 14px; min-height: 1.4em; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--warning); outline-offset: 2px; }
   .empty { color: var(--muted); }
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -99,6 +106,20 @@
     <h1>📊 MS Break Assistant</h1>
     <div class="clock" id="clock">Loading…</div>
   </header>
+
+  <section class="practice" id="practice" hidden aria-label="Practice controls">
+    <h2>Practice mode</h2>
+    <p>The trading window is ignored and practice trades are stored separately from real ones. These buttons send the same alerts TradingView would.</p>
+    <div class="practice-row">
+      <button type="button" id="p-long" data-act="signal" data-arg="LONG">Send LONG signal</button>
+      <button type="button" id="p-short" data-act="signal" data-arg="SHORT">Send SHORT signal</button>
+      <button type="button" id="p-tp" data-act="bar" data-arg="tp">Price hits TP</button>
+      <button type="button" id="p-sl" data-act="bar" data-arg="sl">Price hits SL</button>
+      <button type="button" id="p-drift" data-act="bar" data-arg="drift">Price moves, no hit</button>
+      <button type="button" id="p-reset" data-act="reset">Clear practice data</button>
+    </div>
+    <div id="practice-log" role="status" aria-live="polite"></div>
+  </section>
 
   <div id="banner" class="banner warning" role="status" aria-live="polite">
     <span class="icon">…</span><div>Connecting…</div>
@@ -236,6 +257,7 @@ function entryForm(t) {
 
 function render(s) {
   const st = s.status;
+  $("practice").hidden = !s.practice_mode;
   $("clock").textContent = new Date(st.local_time).toLocaleString([], {timeZone: TZ, weekday: "short", hour: "2-digit", minute: "2-digit", second: "2-digit"}) + " New York";
   $("wins").replaceChildren(String(st.wins), el("span", {}, ` / ${st.max_wins}`));
   $("losses").replaceChildren(String(st.losses), el("span", {}, ` / ${st.max_losses}`));
@@ -245,9 +267,9 @@ function render(s) {
   else if (st.open_trade) setBanner("warning", "⏳", `In a ${st.open_trade.direction} trade`,
     st.open_trade.entry == null ? "Enter your fill price below to see TP / SL."
       : `TP ${fmtPrice(st.open_trade.take_profit)} / SL ${fmtPrice(st.open_trade.stop_loss)}`);
-  else if (st.window.state !== "open") setBanner("warning", "🕒", "Outside trading window", st.window.reason);
+  else if (st.window.state !== "open" && !s.practice_mode) setBanner("warning", "🕒", "Outside trading window", st.window.reason);
   else setBanner("good", "✅", "Ready: waiting for an MSB signal",
-                 `Window closes ${fmtTime(st.window.end)}. TP +${s.tp_points} / SL -${s.sl_points} points.`);
+                 `${s.practice_mode ? "Practice mode: trading window ignored" : "Window closes " + fmtTime(st.window.end)}. TP +${s.tp_points} / SL -${s.sl_points} points.`);
 
   renderOpenTrade(st.open_trade, s.last_bar, st.local_time);
   const openId = st.open_trade ? st.open_trade.id : null;
@@ -287,6 +309,22 @@ async function refresh() {
     $("error").textContent = "Connection problem: " + e.message + " (retrying…)";
   }
 }
+
+document.querySelectorAll("#practice button").forEach(b => b.onclick = async () => {
+  const body = b.dataset.act === "signal" ? {direction: b.dataset.arg} : {kind: b.dataset.arg};
+  try {
+    const r = await fetch(`api/practice/${b.dataset.act}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const d = await r.json();
+    $("practice-log").textContent =
+      b.dataset.act === "reset" ? "Practice data cleared."
+      : d.error ? `Error: ${d.error}`
+      : d.accepted === true ? `Signal accepted. Trade #${d.trade.id} opened at ${fmtPrice(d.trade.entry)}.`
+      : d.accepted === false ? `Signal rejected: ${d.reason}`
+      : d.closed ? `Trade #${d.closed.id} closed: ${d.closed.result.toUpperCase()} at ${fmtPrice(d.closed.exit_price)}.`
+      : `Price bar sent: ${d.note}.`;
+  } catch (e) { $("practice-log").textContent = "Error: " + e.message; }
+  refresh();
+});
 
 document.addEventListener("click", () => {
   if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();

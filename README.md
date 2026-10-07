@@ -44,6 +44,8 @@ This tool is designed for traders using a **1-minute Market Structure Break (MSB
 
 All of these are configurable (see [Configuration](#-configuration)).
 
+**Quick start:** double-click `practice.bat` (Windows) or `practice.command` (Mac). See [Run it on your computer](#-run-it-on-your-computer).
+
 ---
 
 ## 🧱 Architecture
@@ -65,7 +67,9 @@ Browser dashboard ──GET /api/state (every 3s)──┘
 
 | File | Purpose |
 |---|---|
-| `server.py` | Entry point (`server:app` for gunicorn) |
+| `server.py` | Entry point for servers (`server:app` for gunicorn) |
+| `run_local.py`, `start.*`, `practice.*` | One-click start on your own computer |
+| `assistant/practice.py` | Practice-mode simulate buttons |
 | `assistant/__init__.py` | App factory and HTTP routes |
 | `assistant/signals.py` | Parses TradingView payloads into LONG/SHORT signals |
 | `assistant/rules.py` | Trading window and daily stop rules |
@@ -87,7 +91,7 @@ Browser dashboard ──GET /api/state (every 3s)──┘
 
 ## ⚙️ Configuration
 
-All settings are environment variables:
+All settings are environment variables, or lines in the `.env` file in the project folder:
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -103,9 +107,60 @@ All settings are environment variables:
 | `MAX_WINS` | `1` | Stop after this many wins |
 | `MAX_LOSSES` | `2` | Stop after this many losses |
 | `BAR_GRACE_SECONDS` | `30` | Ignore price-feed bars this soon after a trade opens |
+| `PRACTICE_MODE` | off | `1` ignores the trading window, stores data in `data-practice/`, adds simulate buttons |
 | `PORT` | `8080` | HTTP port |
 
 Market holidays and early closes are not detected; on those days, just don't trade.
+
+---
+
+## 💻 Run it on your computer
+
+You need **Python 3.10 or newer** ([python.org/downloads](https://www.python.org/downloads/); on Windows tick
+**"Add python.exe to PATH"** during install). Download the project (GitHub → **Code** → **Download ZIP**, then unzip it).
+
+| | Windows | Mac |
+|---|---|---|
+| **Practice** (try it any time of day) | double-click `practice.bat` | double-click `practice.command` |
+| **Real** (for live trading) | double-click `start.bat` | double-click `start.command` |
+
+The first start takes a minute to install. Then your browser opens the dashboard at
+<http://localhost:8080>. Keep the black window open while you trade; closing it stops the app.
+
+On a Mac, if it says the file can't be opened, right-click it → **Open** → **Open** (only needed once).
+
+### Practice mode
+
+Practice mode ignores the 09:45–11:30 trading window and shows buttons that send the same alerts
+TradingView would: **Send LONG/SHORT signal**, **Price hits TP/SL**, **Clear practice data**.
+Practice trades are stored separately (`data-practice/`) and never mix with real ones.
+
+### Connecting TradingView to your computer
+
+TradingView can't reach `localhost`, so you give your computer a public web address with a free tunnel:
+
+1. Sign up at [ngrok.com](https://ngrok.com), install it, and run the `ngrok config add-authtoken …` command it shows you.
+2. On ngrok's dashboard open **Domains** and copy your free domain (e.g. `your-name.ngrok-free.app`).
+3. With the app running, open a second terminal and run:
+   `ngrok http 8080 --url=your-name.ngrok-free.app`
+4. **Set a dashboard password**, because the dashboard is now reachable from the internet:
+   open `.env` in the project folder, fill in `DASHBOARD_PASSWORD=`, and restart the app.
+5. In your TradingView alerts use **Webhook URL** `https://your-name.ngrok-free.app/webhook` and the
+   secret from the `WEBHOOK_SECRET=` line in `.env` (see [TradingView setup](#-tradingview-setup)).
+
+TradingView only sends webhooks on its paid plans and asks you to turn on two-factor authentication first.
+
+Your settings live in `.env` (created on first start, never uploaded to GitHub). Your trades live in `data/`.
+Back that folder up if you care about the history.
+
+### For developers
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+pytest
+PRACTICE_MODE=1 python run_local.py
+```
 
 ---
 
@@ -164,26 +219,6 @@ How it decides:
 
 If your strategy already sends its own exit alerts, you can send those instead:
 `{"secret": "...", "event": "exit", "result": "tp"}` (or `"sl"`, optionally with `"price"`).
-
----
-
-## 💻 Run locally
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
-python server.py                     # http://localhost:8080
-pytest                               # run the tests
-```
-
-Send a test signal:
-
-```bash
-curl -X POST localhost:8080/webhook -H 'Content-Type: application/json' \
-     -d '{"action": "LONG", "price": 20000}'
-```
-
-(Outside the trading window it will be rejected. That's the rules working.)
 
 ---
 

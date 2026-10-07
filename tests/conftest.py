@@ -21,8 +21,9 @@ def clock():
 
 @pytest.fixture
 def app(tmp_path, clock):
-    return create_app({"TESTING": True, "DATA_DIR": str(tmp_path),
-                       "WEBHOOK_SECRET": "s3cret", "CLOCK": clock})
+    return create_app({"TESTING": True, "DATA_DIR": str(tmp_path), "WEBHOOK_SECRET": "s3cret",
+                       "CLOCK": clock, "DASHBOARD_PASSWORD": "", "PRACTICE_MODE": False,
+                       "BAR_GRACE_SECONDS": 30})
 
 
 @pytest.fixture

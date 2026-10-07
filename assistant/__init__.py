@@ -41,6 +41,9 @@ def create_app(overrides=None):
     app.config.from_object(Config)
     if overrides:
         app.config.update(overrides)
+    app.config["PRACTICE_MODE"] = bool(app.config.get("PRACTICE_MODE"))
+    if app.config["PRACTICE_MODE"]:
+        log.warning("PRACTICE MODE: trading window ignored, data kept in %s", app.config["DATA_DIR"])
     if not app.config["WEBHOOK_SECRET"]:
         log.warning("WEBHOOK_SECRET is not set: webhook accepts unauthenticated requests")
     db.init_app(app)
@@ -59,7 +62,10 @@ def create_app(overrides=None):
         payload = _read_payload()
         if not _secret_ok(app, payload):
             return jsonify(status="error", error="invalid secret"), 401
+        return handle_alert(payload)
 
+    def handle_alert(payload):
+        """Process one TradingView alert (entry signal, price bar or exit)."""
         if isinstance(payload, dict) and payload.get("event"):
             try:
                 closed, note = exits.handle_event(payload, app.config["BAR_GRACE_SECONDS"])
@@ -85,6 +91,10 @@ def create_app(overrides=None):
         trades.record_signal(signal, "accepted", trade_id=trade_id)
         log.info("Accepted %s signal: %s", signal.direction, signal.raw)
         return jsonify(status="ok", accepted=True, trade=trades.get_trade(trade_id))
+
+    if app.config["PRACTICE_MODE"]:
+        from . import practice
+        practice.register(app, handle_alert)
 
     @app.post("/api/trades/<int:trade_id>/result")
     def trade_result(trade_id):
@@ -117,6 +127,7 @@ def create_app(overrides=None):
                        trades=trades.trades_for_day(status["trading_day"]),
                        signals=trades.recent_signals(),
                        last_bar=trades.get_meta("last_bar"),
+                       practice_mode=app.config["PRACTICE_MODE"],
                        tp_points=app.config["TP_POINTS"],
                        sl_points=app.config["SL_POINTS"])
 

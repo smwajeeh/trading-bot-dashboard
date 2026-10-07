@@ -70,7 +70,7 @@ def check_signal(status):
     """Return None if a new trade may be opened, otherwise the reason it may not."""
     if status["stopped"]:
         return status["stop_reason"]
-    if status["window"]["state"] != "open":
+    if status["window"]["state"] != "open" and not current_app.config["PRACTICE_MODE"]:
         return status["window"]["reason"]
     if status["open_trade"]:
         return f"Trade #{status['open_trade']['id']} is still open. Mark its result first."
