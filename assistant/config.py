@@ -11,6 +11,10 @@ class Config:
     # If empty, the webhook accepts any request (only use that locally).
     WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "")
 
+    # Password for the dashboard (HTTP basic auth, any username).
+    # If empty, the dashboard is open to anyone with the URL.
+    DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
+
     # Where persistent data (the SQLite database) lives.
     DATA_DIR = os.environ.get("DATA_DIR", "data")
 

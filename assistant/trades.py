@@ -69,6 +69,21 @@ def set_result(trade_id, result):
     return cur.rowcount == 1
 
 
+def set_entry(trade_id, entry):
+    """Set or correct the fill price of an open trade and recompute TP/SL."""
+    trade = get_trade(trade_id)
+    if trade is None:
+        return False
+    if trade["result"] is not None:
+        raise ValueError("trade is already closed")
+    tp, sl = levels(trade["direction"], entry)
+    db = get_db()
+    db.execute("UPDATE trades SET entry = ?, take_profit = ?, stop_loss = ? WHERE id = ?",
+               (entry, tp, sl, trade_id))
+    db.commit()
+    return True
+
+
 def get_trade(trade_id):
     row = get_db().execute("SELECT * FROM trades WHERE id = ?", (trade_id,)).fetchone()
     return dict(row) if row else None

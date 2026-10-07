@@ -1,7 +1,7 @@
 import hmac
 import logging
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, render_template, request
 
 from . import db, rules, trades
 from .config import Config
@@ -28,6 +28,14 @@ def _secret_ok(app, payload):
     return hmac.compare_digest(str(given), expected)
 
 
+def _dashboard_auth_ok(app):
+    password = app.config["DASHBOARD_PASSWORD"]
+    if not password:
+        return True
+    auth = request.authorization
+    return bool(auth and auth.password and hmac.compare_digest(auth.password, password))
+
+
 def create_app(overrides=None):
     app = Flask(__name__)
     app.config.from_object(Config)
@@ -36,6 +44,15 @@ def create_app(overrides=None):
     if not app.config["WEBHOOK_SECRET"]:
         log.warning("WEBHOOK_SECRET is not set: webhook accepts unauthenticated requests")
     db.init_app(app)
+
+    @app.before_request
+    def protect_dashboard():
+        # The webhook has its own secret; /health stays open for uptime checks.
+        if request.endpoint in ("webhook", "health", "static"):
+            return None
+        if not _dashboard_auth_ok(app):
+            return Response("Login required", 401,
+                            {"WWW-Authenticate": 'Basic realm="MS Break Assistant"'})
 
     @app.post("/webhook")
     def webhook():
@@ -70,6 +87,17 @@ def create_app(overrides=None):
             return jsonify(status="error", error="trade not found"), 404
         return jsonify(status="ok", trade=trades.get_trade(trade_id))
 
+    @app.post("/api/trades/<int:trade_id>/entry")
+    def trade_entry(trade_id):
+        try:
+            entry = float((request.get_json(silent=True) or {})["entry"])
+            found = trades.set_entry(trade_id, entry)
+        except (KeyError, TypeError, ValueError) as e:
+            return jsonify(status="error", error=f"invalid entry: {e}"), 400
+        if not found:
+            return jsonify(status="error", error="trade not found"), 404
+        return jsonify(status="ok", trade=trades.get_trade(trade_id))
+
     @app.get("/api/state")
     def state():
         status = rules.day_status()
@@ -91,7 +119,11 @@ def create_app(overrides=None):
         return jsonify(signals=trades.recent_signals())
 
     @app.get("/")
-    def home():
-        return "Webhook is running!"
+    def dashboard():
+        return render_template("dashboard.html", market_tz=app.config["MARKET_TIMEZONE"])
+
+    @app.get("/health")
+    def health():
+        return jsonify(status="ok")
 
     return app

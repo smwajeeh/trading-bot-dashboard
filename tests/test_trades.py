@@ -32,3 +32,14 @@ def test_data_persists_across_restarts(tmp_path, clock, send):
     send()
     app2 = create_app({"DATA_DIR": str(tmp_path), "CLOCK": clock})
     assert len(app2.test_client().get("/api/trades").get_json()["trades"]) == 1
+
+
+def test_set_entry_recomputes_levels(client, send):
+    tid = send("SHORT", None).get_json()["trade"]["id"]
+    r = client.post(f"/api/trades/{tid}/entry", json={"entry": 20000})
+    t = r.get_json()["trade"]
+    assert (t["entry"], t["take_profit"], t["stop_loss"]) == (20000, 19900, 20050)
+    assert client.post(f"/api/trades/{tid}/entry", json={"entry": "x"}).status_code == 400
+    assert client.post("/api/trades/999/entry", json={"entry": 1}).status_code == 404
+    client.post(f"/api/trades/{tid}/result", json={"result": "win"})
+    assert client.post(f"/api/trades/{tid}/entry", json={"entry": 1}).status_code == 400
