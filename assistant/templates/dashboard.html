@@ -71,6 +71,10 @@
   .entry-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--text-2); font-size: 14px; }
   .entry-form input { font: inherit; width: 140px; padding: 9px 10px; border-radius: 8px;
                       border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+  .feed { color: var(--text-2); font-size: 14px; }
+  .feed.live::before { content: "● "; color: var(--good); }
+  .feed.stale::before { content: "● "; color: var(--muted); }
+  .how { color: var(--muted); font-size: 12px; margin-left: 4px; }
   .empty { color: var(--muted); }
   .table-wrap { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -114,7 +118,7 @@
   <section class="card">
     <h2>Today's trades</h2>
     <div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>Time</th><th>Side</th><th>Entry</th><th>TP</th><th>SL</th><th>Result</th></tr></thead>
+      <thead><tr><th>#</th><th>Time</th><th>Side</th><th>Entry</th><th>TP</th><th>SL</th><th>Exit</th><th>Result</th></tr></thead>
       <tbody id="trades"></tbody>
     </table></div>
   </section>
@@ -134,6 +138,7 @@ const TZ = {{ market_tz | tojson }};
 const $ = (id) => document.getElementById(id);
 const fmtPrice = (v) => v == null ? "–" : Number(v).toLocaleString(undefined, {maximumFractionDigits: 2});
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], {timeZone: TZ, hour: "2-digit", minute: "2-digit", second: "2-digit"});
+const CLOSED_BY = {manual: "manual", "auto-tp": "auto · TP", "auto-sl": "auto · SL", alert: "exit alert"};
 let lastOpenId = null, firstLoad = true;
 
 function el(tag, attrs = {}, ...children) {
@@ -166,6 +171,12 @@ function notify(trade) {
   if ("Notification" in window && Notification.permission === "granted") new Notification("New MSB signal", {body: msg});
 }
 
+function notifyClosed(trade) {
+  beep();
+  const msg = `Trade #${trade.id} closed: ${trade.result.toUpperCase()} @ ${fmtPrice(trade.exit_price)}`;
+  if ("Notification" in window && Notification.permission === "granted") new Notification("Trade closed", {body: msg});
+}
+
 async function post(url, body) {
   const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
@@ -184,9 +195,20 @@ async function setResult(id, result, btns) {
   refresh();
 }
 
-function renderOpenTrade(t) {
+function feedLine(lastBar, serverNow) {
+  // Compare against server time so a skewed device clock doesn't matter.
+  const age = lastBar ? (new Date(serverNow) - new Date(lastBar.at)) / 1000 : Infinity;
+  if (age < 180) return el("div", {className: "feed live"},
+    `Price feed live: last bar ${fmtTime(lastBar.at)} @ ${fmtPrice(lastBar.price ?? lastBar.high)}. TP/SL will close the trade automatically.`);
+  return el("div", {className: "feed stale"},
+    lastBar ? `Price feed quiet since ${fmtTime(lastBar.at)}. Mark the result manually if needed.`
+            : "No price feed connected. Mark the result when the trade closes.");
+}
+
+function renderOpenTrade(t, lastBar, serverNow) {
   const box = $("open-trade");
-  const key = t ? `${t.id}:${t.entry}` : "";
+  const live = lastBar && (new Date(serverNow) - new Date(lastBar.at)) < 180000;
+  const key = t ? `${t.id}:${t.entry}:${lastBar && lastBar.at}:${live}` : "";
   if (box.dataset.key === key && box.contains(document.activeElement)) return;
   box.dataset.key = key;
   if (!t) { box.className = "empty"; box.replaceChildren("No open trade."); return; }
@@ -198,7 +220,7 @@ function renderOpenTrade(t) {
   box.replaceChildren(
     el("div", {}, el("span", {className: "dir " + t.direction}, t.direction), `  #${t.id} · opened ${fmtTime(t.opened_at)}`, t.ticker ? ` · ${t.ticker}` : ""),
     el("div", {className: "levels"}, level("Entry", t.entry), level("Take profit", t.take_profit), level("Stop loss", t.stop_loss)),
-    el("div", {className: "actions"}, ...btns), entryForm(t));
+    feedLine(lastBar, serverNow), el("div", {className: "actions"}, ...btns), entryForm(t));
 }
 
 function entryForm(t) {
@@ -222,22 +244,28 @@ function render(s) {
   if (st.stopped) setBanner("critical", "⛔", "STOP TRADING", st.stop_reason);
   else if (st.open_trade) setBanner("warning", "⏳", `In a ${st.open_trade.direction} trade`,
     st.open_trade.entry == null ? "Enter your fill price below to see TP / SL."
-      : `TP ${fmtPrice(st.open_trade.take_profit)} / SL ${fmtPrice(st.open_trade.stop_loss)}. Mark the result when it closes.`);
+      : `TP ${fmtPrice(st.open_trade.take_profit)} / SL ${fmtPrice(st.open_trade.stop_loss)}`);
   else if (st.window.state !== "open") setBanner("warning", "🕒", "Outside trading window", st.window.reason);
   else setBanner("good", "✅", "Ready: waiting for an MSB signal",
                  `Window closes ${fmtTime(st.window.end)}. TP +${s.tp_points} / SL -${s.sl_points} points.`);
 
-  renderOpenTrade(st.open_trade);
+  renderOpenTrade(st.open_trade, s.last_bar, st.local_time);
   const openId = st.open_trade ? st.open_trade.id : null;
   if (!firstLoad && openId && openId !== lastOpenId) notify(st.open_trade);
+  if (!firstLoad && lastOpenId && openId !== lastOpenId) {
+    const done = s.trades.find(t => t.id === lastOpenId);
+    if (done && done.closed_by && done.closed_by !== "manual") notifyClosed(done);
+  }
   lastOpenId = openId; firstLoad = false;
 
   $("trades").replaceChildren(...(s.trades.length ? s.trades.map(t => el("tr", {},
     el("td", {}, String(t.id)), el("td", {}, fmtTime(t.opened_at)),
     el("td", {}, el("span", {className: "dir " + t.direction}, t.direction)),
     el("td", {}, fmtPrice(t.entry)), el("td", {}, fmtPrice(t.take_profit)), el("td", {}, fmtPrice(t.stop_loss)),
-    el("td", {}, el("span", {className: "pill " + (t.result || "open")}, t.result || "open"))))
-    : [el("tr", {}, el("td", {colSpan: 7, className: "empty"}, "No trades yet today."))]));
+    el("td", {}, fmtPrice(t.exit_price)),
+    el("td", {}, el("span", {className: "pill " + (t.result || "open")}, t.result || "open"),
+              t.closed_by ? el("span", {className: "how"}, CLOSED_BY[t.closed_by] || t.closed_by) : "")))
+    : [el("tr", {}, el("td", {colSpan: 8, className: "empty"}, "No trades yet today."))]));
 
   $("signals").replaceChildren(...(s.signals.length ? s.signals.map(g => el("tr", {},
     el("td", {}, new Date(g.received_at).toLocaleString([], {timeZone: TZ, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"})),

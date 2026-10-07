@@ -26,7 +26,13 @@ CREATE TABLE IF NOT EXISTS trades (
     take_profit REAL,
     stop_loss   REAL,
     result      TEXT,                   -- NULL (open) / win / loss / void
-    closed_at   TEXT
+    closed_at   TEXT,
+    exit_price  REAL,
+    closed_by   TEXT                    -- manual / auto-tp / auto-sl / alert
+);
+CREATE TABLE IF NOT EXISTS meta (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL           -- JSON
 );
 CREATE INDEX IF NOT EXISTS idx_trades_day ON trades(trading_day);
 CREATE INDEX IF NOT EXISTS idx_signals_day ON signals(trading_day);
@@ -55,4 +61,9 @@ def init_app(app):
     os.makedirs(app.config["DATA_DIR"], exist_ok=True)
     with sqlite3.connect(db_path(app)) as conn:
         conn.executescript(SCHEMA)
+        # Upgrade databases created before these columns existed.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(trades)")}
+        for col, kind in (("exit_price", "REAL"), ("closed_by", "TEXT")):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE trades ADD COLUMN {col} {kind}")
     app.teardown_appcontext(close_db)

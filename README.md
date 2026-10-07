@@ -4,7 +4,7 @@ A lightweight trading assistant that connects TradingView alerts to a real-time 
 
 This tool is designed for traders using a **1-minute Market Structure Break (MSB) scalping strategy** with fixed TP/SL and strict daily risk rules.
 
-> It does **not** place orders. It tells you when a signal is valid, where your TP/SL are, and when to stop for the day.
+> It does **not** place orders or connect to a broker. It tells you when a signal is valid, where your TP/SL are, and when to stop for the day.
 
 ---
 
@@ -18,6 +18,7 @@ This tool is designed for traders using a **1-minute Market Structure Break (MSB
   - Stop after **2 losses**
   - Stop after **1 win**
   - One trade at a time
+- 🤖 Automatic win/loss: a TradingView price feed closes the trade when TP or SL is hit
 - 📊 Track wins and losses per trading day (SQLite, survives restarts)
 - ⚠️ Visual STOP warning system
 - 🔒 Optional dashboard password
@@ -53,6 +54,7 @@ TradingView alert ──POST /webhook──▶ Flask app (gunicorn)
                                       │  2. parse LONG/SHORT + price
                                       │  3. apply rules (window, daily stop, open trade)
                                       │  4. log signal; open trade with TP/SL if accepted
+TradingView price feed ─POST /webhook─▶│  5. close the open trade when a bar reaches TP/SL
                                       ▼
                                    SQLite (DATA_DIR/assistant.db)
                                       ▲
@@ -67,6 +69,7 @@ Browser dashboard ──GET /api/state (every 3s)──┘
 | `assistant/__init__.py` | App factory and HTTP routes |
 | `assistant/signals.py` | Parses TradingView payloads into LONG/SHORT signals |
 | `assistant/rules.py` | Trading window and daily stop rules |
+| `assistant/exits.py` | Auto-closes trades from price-feed / exit alerts |
 | `assistant/trades.py` | Storing signals and trades, TP/SL calculation |
 | `assistant/db.py` | SQLite schema and connection handling |
 | `assistant/templates/dashboard.html` | The dashboard (plain HTML + JS, no build step) |
@@ -76,7 +79,8 @@ Browser dashboard ──GET /api/state (every 3s)──┘
 
 1. A signal arrives. If it is outside the window, the daily stop has been hit, or a trade is already open, it is **rejected** and logged with the reason (visible on the dashboard).
 2. Otherwise a trade opens. The dashboard beeps and shows entry, TP and SL. If the alert had no price, type your fill price to get the levels; you can also correct the entry if your fill differed.
-3. When the trade closes, click **Win**, **Loss**, or **Void** (not taken / cancelled; doesn't count toward the limits).
+3. When price reaches TP or SL, the [price feed](#-automatic-winloss-optional) closes the trade automatically and the dashboard beeps.
+   Without a feed (or to override it) click **Win**, **Loss**, or **Void** (not taken / cancelled; doesn't count toward the limits).
 4. After 1 win or 2 losses the banner turns red: **STOP TRADING**. Everything resets the next trading day.
 
 ---
@@ -98,6 +102,7 @@ All settings are environment variables:
 | `SL_POINTS` | `50` | Stop-loss distance in points |
 | `MAX_WINS` | `1` | Stop after this many wins |
 | `MAX_LOSSES` | `2` | Stop after this many losses |
+| `BAR_GRACE_SECONDS` | `30` | Ignore price-feed bars this soon after a trade opens |
 | `PORT` | `8080` | HTTP port |
 
 Market holidays and early closes are not detected; on those days, just don't trade.
@@ -120,6 +125,45 @@ Market holidays and early closes are not detected; on those days, just don't tra
    Plain-text alerts also work (e.g. `MSB LONG`). Put the secret in the URL instead:
    `https://<your-app>.fly.dev/webhook?secret=YOUR_WEBHOOK_SECRET`. Plain-text alerts have no
    price, so you enter the fill on the dashboard.
+
+   Fire entry alerts **once per bar close** so the entry price matches the bar's close.
+
+---
+
+## 🤖 Automatic win/loss (optional)
+
+Add a second alert that sends every 1-minute bar's high/low. When a bar reaches the open
+trade's TP the trade is closed as a **win**; when it reaches SL, a **loss**.
+
+1. In TradingView open the Pine Editor, paste this, and **Add to chart** on your 1-minute MNQ chart:
+
+   ```pine
+   //@version=5
+   indicator("MSB price feed", overlay=true)
+   secret = input.string("YOUR_WEBHOOK_SECRET", "Webhook secret")
+   alert('{"secret":"' + secret + '","event":"price","high":' + str.tostring(high) +
+         ',"low":' + str.tostring(low) + ',"price":' + str.tostring(close) + '}',
+         alert.freq_once_per_bar_close)
+   ```
+
+2. Create an alert: **Condition:** `MSB price feed` → `Any alert() function call`,
+   **Webhook URL:** `https://<your-app>.fly.dev/webhook`. Leave the message empty (the script supplies it).
+
+The dashboard shows **Price feed live** while bars are arriving.
+
+How it decides:
+
+- A bar that touches **both** TP and SL counts as a **loss**: on a 1-minute bar there's no way to
+  know which was hit first, so it takes the conservative side.
+- Bars arriving within `BAR_GRACE_SECONDS` of the entry are ignored, because the signal bar can
+  contain prices from before you entered.
+- A trade with no entry price is never auto-closed; enter the fill first.
+- Only today's open trade is ever closed. A trade left open from a previous day is not.
+- Detection happens at bar close, so it lags the real TP/SL touch by up to a minute. That's fine for
+  record-keeping; your broker's bracket order is what actually exits the position.
+
+If your strategy already sends its own exit alerts, you can send those instead:
+`{"secret": "...", "event": "exit", "result": "tp"}` (or `"sl"`, optionally with `"price"`).
 
 ---
 
@@ -161,7 +205,7 @@ The machine is kept running (`auto_stop_machines = "off"`) so webhooks are never
 
 | Method & path | Auth | Description |
 |---|---|---|
-| `POST /webhook` | webhook secret | Receive a TradingView alert |
+| `POST /webhook` | webhook secret | Entry alert, or `"event": "price"` / `"event": "exit"` (see above) |
 | `GET /` | dashboard password | Dashboard |
 | `GET /api/state` | dashboard password | Today's status, trades, recent signals |
 | `GET /api/trades?day=YYYY-MM-DD` | dashboard password | Trades for a day (default today) |

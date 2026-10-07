@@ -1,4 +1,6 @@
 """Storage and bookkeeping for signals and trades."""
+import json
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from flask import current_app
@@ -57,13 +59,17 @@ def open_trade(signal):
     return cur.lastrowid
 
 
-def set_result(trade_id, result):
+def parse_ts(iso):
+    return datetime.fromisoformat(iso)
+
+
+def set_result(trade_id, result, exit_price=None, closed_by="manual"):
     if result not in RESULTS:
         raise ValueError(f"result must be one of {RESULTS}")
     db = get_db()
     cur = db.execute(
-        "UPDATE trades SET result = ?, closed_at = ? WHERE id = ?",
-        (result, now_utc().isoformat(), trade_id),
+        "UPDATE trades SET result = ?, closed_at = ?, exit_price = ?, closed_by = ? WHERE id = ?",
+        (result, now_utc().isoformat(), exit_price, closed_by, trade_id),
     )
     db.commit()
     return cur.rowcount == 1
@@ -87,6 +93,26 @@ def set_entry(trade_id, entry):
 def get_trade(trade_id):
     row = get_db().execute("SELECT * FROM trades WHERE id = ?", (trade_id,)).fetchone()
     return dict(row) if row else None
+
+
+def current_open_trade():
+    """Today's open trade, if any (matches what the daily rules consider open)."""
+    row = get_db().execute(
+        "SELECT * FROM trades WHERE result IS NULL AND trading_day = ? ORDER BY id DESC LIMIT 1",
+        (trading_day(),)).fetchone()
+    return dict(row) if row else None
+
+
+def set_meta(key, value):
+    db = get_db()
+    db.execute("INSERT INTO meta (key, value) VALUES (?, ?)"
+               " ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, json.dumps(value)))
+    db.commit()
+
+
+def get_meta(key):
+    row = get_db().execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return json.loads(row["value"]) if row else None
 
 
 def trades_for_day(day):

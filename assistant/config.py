@@ -31,5 +31,9 @@ class Config:
     MAX_WINS = int(os.environ.get("MAX_WINS", 1))
     MAX_LOSSES = int(os.environ.get("MAX_LOSSES", 2))
 
+    # Price-feed bars arriving this soon after a trade opens are ignored, because
+    # the signal bar itself can contain prices from before the entry.
+    BAR_GRACE_SECONDS = int(os.environ.get("BAR_GRACE_SECONDS", 30))
+
     # Returns the current time as an aware UTC datetime; overridden in tests.
     CLOCK = staticmethod(utc_now)

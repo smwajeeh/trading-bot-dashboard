@@ -3,7 +3,7 @@ import logging
 
 from flask import Flask, Response, jsonify, render_template, request
 
-from . import db, rules, trades
+from . import db, exits, rules, trades
 from .config import Config
 from .signals import SignalError, parse_signal
 
@@ -59,6 +59,16 @@ def create_app(overrides=None):
         payload = _read_payload()
         if not _secret_ok(app, payload):
             return jsonify(status="error", error="invalid secret"), 401
+
+        if isinstance(payload, dict) and payload.get("event"):
+            try:
+                closed, note = exits.handle_event(payload, app.config["BAR_GRACE_SECONDS"])
+            except exits.ExitError as e:
+                return jsonify(status="error", error=str(e)), 400
+            if closed:
+                log.info("Trade #%s %s", closed["id"], note)
+            return jsonify(status="ok", closed=closed, note=note)
+
         try:
             signal = parse_signal(payload)
         except SignalError as e:
@@ -106,6 +116,7 @@ def create_app(overrides=None):
                        block_reason=rules.check_signal(status),
                        trades=trades.trades_for_day(status["trading_day"]),
                        signals=trades.recent_signals(),
+                       last_bar=trades.get_meta("last_bar"),
                        tp_points=app.config["TP_POINTS"],
                        sl_points=app.config["SL_POINTS"])
 
