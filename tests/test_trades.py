@@ -1,7 +1,8 @@
-def test_signal_opens_trade_with_levels(send):
+def test_signal_opens_trade_with_levels(client, send):
     trade = send("LONG", 20000).get_json()["trade"]
     assert (trade["entry"], trade["take_profit"], trade["stop_loss"]) == (20000, 20100, 19950)
     assert trade["trading_day"] == "2026-10-06" and trade["result"] is None
+    client.post(f"/api/trades/{trade['id']}/result", json={"result": "void"})
 
     trade = send("SHORT", 20000).get_json()["trade"]
     assert (trade["take_profit"], trade["stop_loss"]) == (19900, 20050)

@@ -3,7 +3,7 @@ import logging
 
 from flask import Flask, jsonify, request
 
-from . import db, trades
+from . import db, rules, trades
 from .config import Config
 from .signals import SignalError, parse_signal
 
@@ -47,9 +47,16 @@ def create_app(overrides=None):
         except SignalError as e:
             return jsonify(status="error", error=str(e)), 400
 
+        reason = rules.check_signal(rules.day_status())
+        if reason:
+            trades.record_signal(signal, "rejected", reason=reason)
+            log.info("Rejected %s signal: %s", signal.direction, reason)
+            # 200 so TradingView does not treat it as a delivery failure.
+            return jsonify(status="ok", accepted=False, reason=reason)
+
         trade_id = trades.open_trade(signal)
         trades.record_signal(signal, "accepted", trade_id=trade_id)
-        log.info("Received %s signal: %s", signal.direction, signal.raw)
+        log.info("Accepted %s signal: %s", signal.direction, signal.raw)
         return jsonify(status="ok", accepted=True, trade=trades.get_trade(trade_id))
 
     @app.post("/api/trades/<int:trade_id>/result")
@@ -62,6 +69,17 @@ def create_app(overrides=None):
         if not found:
             return jsonify(status="error", error="trade not found"), 404
         return jsonify(status="ok", trade=trades.get_trade(trade_id))
+
+    @app.get("/api/state")
+    def state():
+        status = rules.day_status()
+        return jsonify(status=status,
+                       can_trade=rules.check_signal(status) is None,
+                       block_reason=rules.check_signal(status),
+                       trades=trades.trades_for_day(status["trading_day"]),
+                       signals=trades.recent_signals(),
+                       tp_points=app.config["TP_POINTS"],
+                       sl_points=app.config["SL_POINTS"])
 
     @app.get("/api/trades")
     def list_trades():

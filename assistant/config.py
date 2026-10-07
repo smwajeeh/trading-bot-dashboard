@@ -18,5 +18,14 @@ class Config:
     TP_POINTS = float(os.environ.get("TP_POINTS", 100))
     SL_POINTS = float(os.environ.get("SL_POINTS", 50))
 
+    # Trading window: market open + SKIP_MINUTES until market open + WINDOW_MINUTES.
+    MARKET_OPEN = os.environ.get("MARKET_OPEN", "09:30")
+    SKIP_MINUTES = int(os.environ.get("SKIP_MINUTES", 15))
+    WINDOW_MINUTES = int(os.environ.get("WINDOW_MINUTES", 120))
+
+    # Daily stop rules.
+    MAX_WINS = int(os.environ.get("MAX_WINS", 1))
+    MAX_LOSSES = int(os.environ.get("MAX_LOSSES", 2))
+
     # Returns the current time as an aware UTC datetime; overridden in tests.
     CLOCK = staticmethod(utc_now)
